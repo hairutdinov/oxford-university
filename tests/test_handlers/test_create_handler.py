@@ -2,16 +2,13 @@ import json
 
 import pytest
 
-from hashing import Hasher
-
 
 async def test_create_user(client, get_user_from_database):
-    user_password = str(12345)
     user_data = {
         "name": "Nikolai",
         "surname": "Sviridov",
         "email": "lol@kek.com",
-        "password": user_password,
+        "password": "SamplePass1!",
     }
     resp = await client.post("/user/", data=json.dumps(user_data))
     data_from_resp = resp.json()
@@ -20,32 +17,26 @@ async def test_create_user(client, get_user_from_database):
     assert data_from_resp["surname"] == user_data["surname"]
     assert data_from_resp["email"] == user_data["email"]
     assert data_from_resp["is_active"] is True
-    users_from_db = await get_user_from_database(data_from_resp["user_id"])
-    assert len(users_from_db) == 1
-    user_from_db = dict(users_from_db[0])
-    assert user_from_db["name"] == user_data["name"]
-    assert user_from_db["surname"] == user_data["surname"]
-    assert user_from_db["email"] == user_data["email"]
-    assert user_from_db["is_active"] is True
-    assert (
-        Hasher.verify_password(user_password, user_from_db["hashed_password"]) is True
-    )
-    assert str(user_from_db["user_id"]) == data_from_resp["user_id"]
+    user_from_db = await get_user_from_database(data_from_resp["user_id"])
+    assert user_from_db.name == user_data["name"]
+    assert user_from_db.surname == user_data["surname"]
+    assert user_from_db.email == user_data["email"]
+    assert user_from_db.is_active is True
+    assert str(user_from_db.user_id) == data_from_resp["user_id"]
 
 
 async def test_create_user_duplicate_email_error(client, get_user_from_database):
-    user_password = str(12345)
     user_data = {
         "name": "Nikolai",
         "surname": "Sviridov",
         "email": "lol@kek.com",
-        "password": user_password,
+        "password": "SamplePass1!",
     }
     user_data_same = {
         "name": "Petr",
         "surname": "Petrov",
         "email": "lol@kek.com",
-        "password": user_password,
+        "password": "SamplePass1!",
     }
     resp = await client.post("/user/", data=json.dumps(user_data))
     data_from_resp = resp.json()
@@ -54,14 +45,12 @@ async def test_create_user_duplicate_email_error(client, get_user_from_database)
     assert data_from_resp["surname"] == user_data["surname"]
     assert data_from_resp["email"] == user_data["email"]
     assert data_from_resp["is_active"] is True
-    users_from_db = await get_user_from_database(data_from_resp["user_id"])
-    assert len(users_from_db) == 1
-    user_from_db = dict(users_from_db[0])
-    assert user_from_db["name"] == user_data["name"]
-    assert user_from_db["surname"] == user_data["surname"]
-    assert user_from_db["email"] == user_data["email"]
-    assert user_from_db["is_active"] is True
-    assert str(user_from_db["user_id"]) == data_from_resp["user_id"]
+    user_from_db = await get_user_from_database(data_from_resp["user_id"])
+    assert user_from_db.name == user_data["name"]
+    assert user_from_db.surname == user_data["surname"]
+    assert user_from_db.email == user_data["email"]
+    assert user_from_db.is_active is True
+    assert str(user_from_db.user_id) == data_from_resp["user_id"]
     resp = await client.post("/user/", data=json.dumps(user_data_same))
     assert resp.status_code == 503
     assert (
@@ -102,22 +91,17 @@ async def test_create_user_duplicate_email_error(client, get_user_from_database)
             },
         ),
         (
-            {"name": 123, "surname": 456, "email": "lol", "password": 12345},
+            {"name": 123, "surname": 456, "email": "lol"},
             422,
             {"detail": "Name should contains only letters"},
         ),
         (
-            {"name": "Nikolai", "surname": 456, "email": "lol", "password": 12345},
+            {"name": "Nikolai", "surname": 456, "email": "lol"},
             422,
             {"detail": "Surname should contains only letters"},
         ),
         (
-            {
-                "name": "Nikolai",
-                "surname": "Sviridov",
-                "email": "lol",
-                "password": 12345,
-            },
+            {"name": "Nikolai", "surname": "Sviridov", "email": "lol"},
             422,
             {
                 "detail": [
@@ -125,7 +109,12 @@ async def test_create_user_duplicate_email_error(client, get_user_from_database)
                         "loc": ["body", "email"],
                         "msg": "value is not a valid email address",
                         "type": "value_error.email",
-                    }
+                    },
+                    {
+                        "loc": ["body", "password"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                    },
                 ]
             },
         ),

@@ -1,11 +1,13 @@
 import asyncio
 import os
+from datetime import timedelta
 from typing import AsyncGenerator
 
 import asyncpg
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import insert
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -13,9 +15,8 @@ from sqlalchemy.orm import sessionmaker
 import settings
 from db.models import User
 from db.session import get_db
-from hashing import Hasher
 from main import app
-
+from security import create_access_token
 
 CLEAN_TABLES = [
     "users",
@@ -110,13 +111,14 @@ async def asyncpg_pool():
 
 @pytest.fixture
 async def get_user_from_database(asyncpg_pool):
-    async def get_user_from_database_by_uuid(user_id: str):
-        async with asyncpg_pool.acquire() as connection:
-            return await connection.fetch(
-                """SELECT * FROM users WHERE user_id = $1;""", user_id
-            )
+    async def wrapper(user_id: str):
+        async with async_session_maker() as session:
+            async with session.begin():
+                query = select(User).where(User.user_id == user_id)
+                result = await session.scalar(query)
+                return result
 
-    return get_user_from_database_by_uuid
+    return wrapper
 
 
 @pytest.fixture
@@ -127,7 +129,7 @@ async def create_user_in_database(asyncpg_pool):
         surname: str,
         email: str,
         is_active: bool,
-        password: str,
+        hashed_password: str,
     ):
         async with async_session_maker() as session:
             async with session.begin():
@@ -137,8 +139,16 @@ async def create_user_in_database(asyncpg_pool):
                     surname=surname,
                     email=email,
                     is_active=is_active,
-                    hashed_password=Hasher.get_password_hash(password),
+                    hashed_password=hashed_password,
                 )
                 return await session.execute(stmt)
 
     return wrapper
+
+
+def create_test_auth_headers_for_user(email: str) -> dict[str, str]:
+    access_token = create_access_token(
+        data={"sub": email},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return {"Authorization": f"Bearer {access_token}"}
