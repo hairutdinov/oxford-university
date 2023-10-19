@@ -1,26 +1,37 @@
-from typing import Generator, Any
-from uuid import UUID
-import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from starlette.testclient import TestClient
-import settings
-from main import app
-import os
 import asyncio
-from db.session import get_db
+import os
+from typing import AsyncGenerator
+
 import asyncpg
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.orm import sessionmaker
 
+import settings
+from db.models import User
+from db.session import get_db
+from main import app
 
-# create async engine for interaction with database
-test_engine = create_async_engine(settings.TEST_DATABASE_URL, future=True, echo=True)
-
-# create session for the interaction with database
-test_async_session = sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
 
 CLEAN_TABLES = [
     "users",
 ]
+
+test_engine = create_async_engine(settings.TEST_DATABASE_URL, future=True, echo=True)
+async_session_maker = sessionmaker(
+    test_engine, expire_on_commit=False, class_=AsyncSession
+)
+
+
+async def override_get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    async with async_session_maker() as session:
+        yield session
+
+
+app.dependency_overrides[get_db] = override_get_async_session
 
 
 @pytest.fixture(scope="session")
@@ -53,46 +64,74 @@ async def clean_tables(async_session_test):
                 await session.execute(f"""TRUNCATE TABLE {table_for_cleaning};""")
 
 
-async def _get_test_db():
-    try:
-        yield test_async_session()
-    finally:
-        pass
+# async def _get_test_db():
+#     try:
+#         # create async engine for interaction with database
+#         test_engine = create_async_engine(
+#             settings.TEST_DATABASE_URL, future=True, echo=True
+#         )
+#
+#         # create session for the interaction with database
+#         test_async_session = sessionmaker(
+#             test_engine, expire_on_commit=False, class_=AsyncSession
+#         )
+#         yield test_async_session()
+#     finally:
+#         pass
 
-@pytest.fixture(scope="function")
-async def client() -> Generator[TestClient, Any, None]:
-    """
-    Create a new FastAPI TestClient that uses the `db_session` fixture to override
-    the `get_db` dependency that is injected into routes.
-    """
 
-    app.dependency_overrides[get_db] = _get_test_db
-    with TestClient(app) as client:
-        yield client
+# @pytest.fixture(scope="function")
+# async def client() -> Generator[TestClient, Any, None]:
+#     """
+#     Create a new FastAPI TestClient that uses the `db_session` fixture to override
+#     the `get_db` dependency that is injected into routes.
+#     """
+#
+#     # app.dependency_overrides[get_db] = _get_test_db
+#     with TestClient(app) as client:
+#         yield client
+
+
+@pytest.fixture(scope="session")
+async def client() -> AsyncGenerator[AsyncClient, None]:
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        yield ac
 
 
 @pytest.fixture(scope="session")
 async def asyncpg_pool():
-    pool = await asyncpg.create_pool("".join(settings.TEST_DATABASE_URL.split("+asyncpg")))
+    pool = await asyncpg.create_pool(
+        "".join(settings.TEST_DATABASE_URL.split("+asyncpg"))
+    )
     yield pool
     pool.close()
 
 
 @pytest.fixture
 async def get_user_from_database(asyncpg_pool):
-
     async def get_user_from_database_by_uuid(user_id: str):
         async with asyncpg_pool.acquire() as connection:
-            return await connection.fetch("""SELECT * FROM users WHERE user_id = $1;""", user_id)
+            return await connection.fetch(
+                """SELECT * FROM users WHERE user_id = $1;""", user_id
+            )
 
     return get_user_from_database_by_uuid
 
 
 @pytest.fixture
 async def create_user_in_database(asyncpg_pool):
+    async def wrapper(
+        user_id: str, name: str, surname: str, email: str, is_active: bool
+    ):
+        async with async_session_maker() as session:
+            async with session.begin():
+                stmt = insert(User).values(
+                    user_id=user_id,
+                    name=name,
+                    surname=surname,
+                    email=email,
+                    is_active=is_active,
+                )
+                return await session.execute(stmt)
 
-    async def create_user_in_database(user_id: str, name: str, surname: str, email: str, is_active: bool):
-        async with asyncpg_pool.acquire() as connection:
-            return await connection.execute("""INSERT INTO users VALUES ($1, $2, $3, $4, $5)""",
-                                            user_id, name, surname, email, is_active)
-    return create_user_in_database
+    return wrapper
