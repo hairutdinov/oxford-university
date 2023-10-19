@@ -2,9 +2,17 @@ import json
 
 import pytest
 
+from hashing import Hasher
+
 
 async def test_create_user(client, get_user_from_database):
-    user_data = {"name": "Nikolai", "surname": "Sviridov", "email": "lol@kek.com"}
+    user_password = str(12345)
+    user_data = {
+        "name": "Nikolai",
+        "surname": "Sviridov",
+        "email": "lol@kek.com",
+        "password": user_password,
+    }
     resp = await client.post("/user/", data=json.dumps(user_data))
     data_from_resp = resp.json()
     assert resp.status_code == 200
@@ -19,12 +27,26 @@ async def test_create_user(client, get_user_from_database):
     assert user_from_db["surname"] == user_data["surname"]
     assert user_from_db["email"] == user_data["email"]
     assert user_from_db["is_active"] is True
+    assert (
+        Hasher.verify_password(user_password, user_from_db["hashed_password"]) is True
+    )
     assert str(user_from_db["user_id"]) == data_from_resp["user_id"]
 
 
 async def test_create_user_duplicate_email_error(client, get_user_from_database):
-    user_data = {"name": "Nikolai", "surname": "Sviridov", "email": "lol@kek.com"}
-    user_data_same = {"name": "Petr", "surname": "Petrov", "email": "lol@kek.com"}
+    user_password = str(12345)
+    user_data = {
+        "name": "Nikolai",
+        "surname": "Sviridov",
+        "email": "lol@kek.com",
+        "password": user_password,
+    }
+    user_data_same = {
+        "name": "Petr",
+        "surname": "Petrov",
+        "email": "lol@kek.com",
+        "password": user_password,
+    }
     resp = await client.post("/user/", data=json.dumps(user_data))
     data_from_resp = resp.json()
     assert resp.status_code == 200
@@ -71,21 +93,31 @@ async def test_create_user_duplicate_email_error(client, get_user_from_database)
                         "msg": "field required",
                         "type": "value_error.missing",
                     },
+                    {
+                        "loc": ["body", "password"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                    },
                 ]
             },
         ),
         (
-            {"name": 123, "surname": 456, "email": "lol"},
+            {"name": 123, "surname": 456, "email": "lol", "password": 12345},
             422,
             {"detail": "Name should contains only letters"},
         ),
         (
-            {"name": "Nikolai", "surname": 456, "email": "lol"},
+            {"name": "Nikolai", "surname": 456, "email": "lol", "password": 12345},
             422,
             {"detail": "Surname should contains only letters"},
         ),
         (
-            {"name": "Nikolai", "surname": "Sviridov", "email": "lol"},
+            {
+                "name": "Nikolai",
+                "surname": "Sviridov",
+                "email": "lol",
+                "password": 12345,
+            },
             422,
             {
                 "detail": [

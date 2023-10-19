@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 import settings
 from db.models import User
 from db.session import get_db
+from hashing import Hasher
 from main import app
 
 
@@ -121,7 +122,12 @@ async def get_user_from_database(asyncpg_pool):
 @pytest.fixture
 async def create_user_in_database(asyncpg_pool):
     async def wrapper(
-        user_id: str, name: str, surname: str, email: str, is_active: bool
+        user_id: str,
+        name: str,
+        surname: str,
+        email: str,
+        is_active: bool,
+        password: str,
     ):
         async with async_session_maker() as session:
             async with session.begin():
@@ -131,6 +137,7 @@ async def create_user_in_database(asyncpg_pool):
                     surname=surname,
                     email=email,
                     is_active=is_active,
+                    hashed_password=Hasher.get_password_hash(password),
                 )
                 return await session.execute(stmt)
 
